@@ -1,8 +1,9 @@
 /* built in file handling plugin */
-define(function(){
+define(function(require, exports, module){
 	return {
-		init : function(config, callback){
-			//console.log('file setup', config);
+		init : function(nodeRequire, config, callback){
+			var aws = nodeRequire('aws-sdk');
+			var skipper = nodeRequire('skipper');
 			callback();
 		},
 		encode : function(inp, callback){
