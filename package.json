@@ -5,6 +5,7 @@
   "dependencies": {
     "aws-sdk": "~2.1.38",
     "skipper": "~0.5.5",
-    "express": "~4.13.1"
+    "express": "~4.13.1",
+    "requirejs": "~2.1.20"
   }
 }
