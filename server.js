@@ -10,7 +10,8 @@ module.exports = function(config){
 	var api = {
 		init : function(gconfig, callback){
 			var router = express.Router();
-			router.route('/').post(function(req, res, next){
+			/* post route to encode a new file */
+			router.route('/').post(function(req, res){
 				skipper(req, res, function(e){ //call skipper
 					if(e) res.json({error : 'file'});
 					else{
@@ -42,6 +43,20 @@ module.exports = function(config){
 						}
 					}
 				});
+			});
+			router.route('/:id').get(function(req, res){
+				if(!req.params.id.match(/^[0-9a-f]{32}$/)) res.json({error : 'invalid id'});
+				else{
+					var s3 = new aws.S3().getObject({Bucket: config.bucket, Key : req.params.id});
+					var ds = s3.createReadStream();
+					ds.on('error', function(){
+						res.json({error : 'not found'});
+					});
+					ds.on('finish', function(){
+						res.end();
+					});
+					ds.pipe(res);
+				}
 			});
 			gconfig.app.use('/bin', router);
 			callback();
