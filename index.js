@@ -21,7 +21,9 @@ define({factory : true}, function(){
 	        var router = srv.express.Router(); //make a new router just for this type
 			/* post route to encode a new file */
 			router.route('/:identifier').post(function(req, res){
-				srv.skipper(req, res, function(e){ //call skipper
+				var propConfig = props[req.params.identifier];
+				if(!propConfig) res.json({error : 'unkown property: '+req.params.identifier});
+				else srv.skipper(req, res, function(e){ //call skipper
 					if(e) res.json({error : 'file'});
 					else{
 						var files = req.file('files').on('error', function(){}); 
@@ -33,20 +35,31 @@ define({factory : true}, function(){
 							var tmppath = srv.path.join(srv.tmpdir, id);
 							var ws = srv.fs.createWriteStream(tmppath);
 							file.stream.pipe(ws).on('finish', function(e){
-								if(e) res.json({error : 'something'});
+								if(e) res.json({error : 'something bad happened'});
 								else{
-									/* clean up after a min */
-									setTimeout(function(){
-										srv.fs.unlink(tmppath, function(){});	
-									}, (srv.fileConfig.timeout||60)*1000);
-									
-									/* respond to request */
-									res.json({
+									var output = {
 										id : id,
 										temporary : true,
 										name : file.stream.filename,
 										size : file.stream.byteCount
-									});
+									};
+									/* onupload filehandler */
+									if(propConfig.onupload) propConfig.onupload(tmppath, function(e, value){
+										if(value) output.value = value;
+										done(e);
+									})
+									function done(e){
+										if(e) res.json({error : e});
+										else{
+											/* clean up temp file after a min */
+											setTimeout(function(){
+												srv.fs.unlink(tmppath, function(){});	
+											}, (srv.fileConfig.timeout||60)*1000);
+											
+											/* respond to request */
+											res.json(output);
+										}
+									}
 								}
 							});
 						}
@@ -54,7 +67,9 @@ define({factory : true}, function(){
 				});
 			});
 			router.route('/:identifier/:id').get(function(req, res){
-				if(!req.params.id.match(/^[0-9a-f]{32}$/)) res.json({error : 'invalid id'});
+				var propConfig = props[req.params.identifier];
+				if(!propConfig) res.json({error : 'unkown property: '+req.params.identifier});
+				else if(!req.params.id.match(/^[0-9a-f]{32}$/)) res.json({error : 'invalid id'});
 				else{
 					var s3 = new srv.aws.S3().getObject({Bucket: srv.fileConfig.bucket, Key : req.params.id});
 					var ds = s3.createReadStream();
@@ -67,35 +82,50 @@ define({factory : true}, function(){
 					ds.pipe(res);
 				}
 			});
-			config.app.use('/bin', router);
+			config.app.use(srv.fileConfig.route||'/bin', router);
 			callback();
 		}),	
-		api : function(identifier, config, callback){
+		api : function(identifier, propConfig, callback){
+			var noStore = _.has(propConfig, 'store') && !propConfig.store;
 			var api = {
 				encode : browser(function(value, callback){
 					require('ajax').file('/bin/'+identifier, value, false, callback);
 				}),
 				decode : function(value, callback){
-					callback(null, value);
+					/* generate client side api */
+					var output = value.value;
+					if(!noStore) output = {
+						name : value.name,
+						size : value.size,
+						url : '/bin/'+identifier+'/'+value.id,
+						value : value.value
+					};
+					callback(null, output);
 				},
 				finalize : node(function(value, callback){
-					/* move temporary file to s3 and clean up */
-					var tmppath = srv.path.join(srv.tmpdir, value.id);
-					var rs = srv.fs.createReadStream(tmppath).on('error', function(e){
-						callback('not found');
-					});
-					var s3 = new srv.aws.S3({params: {Bucket: srv.fileConfig.bucket, Key : value.id}});
-					s3.upload({Body : rs}).send(function(e, data){
-						if(e) res.json({error : e.toString()})
-						else srv.fs.unlink(tmppath, function(e){
-							delete value.temporary;
-							callback(e, value);
+					if(noStore) callback(null, value);
+					else{
+						/* move temporary file to s3 and clean up */
+						var tmppath = srv.path.join(srv.tmpdir, value.id);
+						var rs = srv.fs.createReadStream(tmppath).on('error', function(e){
+							callback('not found');
 						});
-					});
+						var s3 = new srv.aws.S3({params: {Bucket: srv.fileConfig.bucket, Key : value.id}});
+						s3.upload({Body : rs}).send(function(e, data){
+							if(e) res.json({error : e.toString()})
+							else srv.fs.unlink(tmppath, function(e){
+								delete value.temporary;
+								callback(e, value);
+							});
+						});
+					}
 				}),
 				purge : node(function(value, callback){
-					var s3 = new srv.aws.S3();
-					s3.deleteObject({Bucket: srv.fileConfig.bucket, Key : value.id}, callback);
+					if(noStore) callback();
+					else{
+						var s3 = new srv.aws.S3();
+						s3.deleteObject({Bucket: srv.fileConfig.bucket, Key : value.id}, callback);
+					}
 				})
 			}
 			callback(null, api);
