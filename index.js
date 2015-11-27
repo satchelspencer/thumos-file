@@ -43,7 +43,7 @@ define({factory : true}, function(){
 										name : file.stream.filename,
 										size : file.stream.byteCount
 									};
-									/* onupload filehandler */
+									/* onupload handler */
 									if(propConfig.onupload) propConfig.onupload(tmppath, function(e, value){
 										if(value) output.value = value;
 										done(e);
@@ -103,21 +103,24 @@ define({factory : true}, function(){
 					callback(null, output);
 				},
 				finalize : node(function(value, callback){
-					if(noStore) callback(null, value);
+					if(!_.isObject(value) || !_.isString(value.id)) callback('invalid value');
 					else{
-						/* move temporary file to s3 and clean up */
-						var tmppath = srv.path.join(srv.tmpdir, value.id);
-						var rs = srv.fs.createReadStream(tmppath).on('error', function(e){
-							callback('not found');
-						});
-						var s3 = new srv.aws.S3({params: {Bucket: srv.fileConfig.bucket, Key : value.id}});
-						s3.upload({Body : rs}).send(function(e, data){
-							if(e) res.json({error : e.toString()})
-							else srv.fs.unlink(tmppath, function(e){
-								delete value.temporary;
-								callback(e, value);
+						delete value.temporary;
+						if(noStore) callback(null, value);
+						else{
+							/* move temporary file to s3 and clean up */
+							var tmppath = srv.path.join(srv.tmpdir, value.id);
+							var rs = srv.fs.createReadStream(tmppath).on('error', function(e){
+								callback('not found');
 							});
-						});
+							var s3 = new srv.aws.S3({params: {Bucket: srv.fileConfig.bucket, Key : value.id}});
+							s3.upload({Body : rs}).send(function(e, data){
+								if(e) res.json({error : e.toString()})
+								else srv.fs.unlink(tmppath, function(e){
+									callback(e, value);
+								});
+							});
+						}
 					}
 				}),
 				purge : node(function(value, callback){
