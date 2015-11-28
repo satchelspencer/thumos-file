@@ -6,7 +6,8 @@ define({factory : true}, function(){
         fs : nodeRequire('fs-extra'),
         path : nodeRequire('path'),
         skipper : nodeRequire('skipper')(),
-        express : nodeRequire('express')
+        express : nodeRequire('express'),
+        mime : nodeRequire('mime')
 	});
 
 	return {
@@ -31,7 +32,7 @@ define({factory : true}, function(){
 						if(!file) res.json({error : 'no file'});
 						else{
 							/* gen random id for use in s3 */
-							var id = srv.crypto.randomBytes(16).toString('hex');
+							var id = srv.crypto.randomBytes(16).toString('hex')+'.'+file.stream.filename;
 							var tmppath = srv.path.join(srv.tmpdir, id);
 							var ws = srv.fs.createWriteStream(tmppath);
 							file.stream.pipe(ws).on('finish', function(e){
@@ -48,6 +49,7 @@ define({factory : true}, function(){
 										if(value) output.value = value;
 										done(e);
 									})
+									else done();
 									function done(e){
 										if(e) res.json({error : e});
 										else{
@@ -66,10 +68,11 @@ define({factory : true}, function(){
 					}
 				});
 			});
+			/* download route */
 			router.route('/:identifier/:id').get(function(req, res){
 				var propConfig = props[req.params.identifier];
 				if(!propConfig) res.json({error : 'unkown property: '+req.params.identifier});
-				else if(!req.params.id.match(/^[0-9a-f]{32}$/)) res.json({error : 'invalid id'});
+				else if(!req.params.id.match(/^[0-9a-f]{32}\..+$/)) res.json({error : 'invalid id'});
 				else{
 					var s3 = new srv.aws.S3().getObject({Bucket: srv.fileConfig.bucket, Key : req.params.id});
 					var ds = s3.createReadStream();
@@ -79,6 +82,10 @@ define({factory : true}, function(){
 					ds.on('finish', function(){
 						res.end();
 					});
+					/* set content-type based on ext */
+					var filename = req.params.id.match(/[0-9a-f]{32}\.(.+)/i)[1];
+					res.setHeader('Content-type', srv.mime.lookup(filename));
+					if(propConfig.download) res.setHeader('Content-disposition', 'attachment; filename='+filename);
 					ds.pipe(res);
 				}
 			});

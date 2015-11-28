@@ -22,3 +22,4 @@ global options are passed as the `file` property in [thumos' config object](http
 thumos-file looks for the following options in the property config object. none are required
  - `onupload : function(localPath, callback)`
  - `store` bool (default true) if false: file will not be stored, only the value returned from `onupload` will be stored
+ - `download` bool (default false) if true: requests will include headers for download, along with filename
